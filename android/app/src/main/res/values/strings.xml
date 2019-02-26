@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">HelloWorldAndroidThings</string>
+    <string name="title_activity_temperatura">Temperatura</string>
+    <string name="title_activity_rele">Rele</string>
+</resources>

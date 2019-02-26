@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+    <head>
+
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta http-equiv="X-UA-Compatible" content="ie=edge">
+
+        <title>FaceApi - GDG POA</title>
+
+        <!-- estilo -->
+        <link rel="stylesheet" href="css/style.css">
+
+        <!-- lib FACE API -->
+        <script src="js/face-api/face-api.js"></script>   
+
+    </head>
+    <body>
+        
+        <!-- 
+            Detectar sorriso
+        -->
+
+        <div id="face-box">
+            <video onplay="onPlay(this)" id="inputVideo" autoplay muted></video>
+            <canvas id="overlay"></canvas>
+        </div>
+
+        <script>
+            // container de video
+            const input = document.getElementById('inputVideo')
+
+            // canvas
+            const canvas = document.getElementById('overlay')
+
+            // retorna a expressao da pessoa
+            function getExpression(expressions){
+                
+                let max = expressions[0];
+
+                for(i = 1; i < expressions.length; i++){
+                    max = ( max.probability > expressions[i].probability ) ? max : expressions[i];
+                }
+
+                return max;
+
+            }
+
+            // ajusta o tamanho do canvas e os boxes
+            function resizeCanvasAndResults(dimensions, canvas, results) {
+
+                let { width, height } = dimensions instanceof HTMLVideoElement ? faceapi.getMediaDimensions(dimensions) : dimensions
+                
+                canvas.width = width
+                canvas.height = height
+
+                return faceapi.resizeResults(results, { width, height })
+
+            }
+
+            // executado quando a webcam começa a aparecer na tela
+            async function onPlay() {
+                console.log('onPlay');
+
+                // adiciona .withFaceExpressions()
+                // retorna um array com qual a expressao mais provavel
+                let detections = await faceapi.detectSingleFace(input, new faceapi.TinyFaceDetectorOptions()).withFaceExpressions();
+                
+                // alem de detectar o rosto, vamos verificar que a expressao do mesmo eh Happy
+                if(detections) {
+
+                    console.log(detections); // informacoes sobre a face detectada
+
+                    let resizedDetections = resizeCanvasAndResults(input, canvas, detections.detection)
+                    faceapi.drawDetection(canvas, resizedDetections, { withScore: false })
+                    
+                    let userExpression = getExpression(detections.expressions);
+
+                    if ( userExpression.expression == "happy" ) {
+
+                        // cidadao sorriu
+                        console.log('Sorriu!');
+
+                    } else {
+                        // se nao sorriu executa play de novo ate sorrir, queremos pessoas felizes!
+                        console.log(userExpression.expression);
+                        setTimeout(() => onPlay(), 500);
+                    }
+
+                } else {
+                    // se nao detectou uma face executa de novo ate detectar
+                    setTimeout(() => onPlay(), 200);
+                }
+                
+
+            }
+
+            async function run(){
+                // carrega modelos
+                await faceapi.loadTinyFaceDetectorModel('/models')
+
+                // carrega o modulo de expressoes
+                await faceapi.loadFaceExpressionModel('/models')
+
+                                
+                // Acessa webcam
+                navigator.getUserMedia(
+                    { video: {} },
+                    stream => input.srcObject = stream,
+                    err => console.error(err)
+                )
+            };
+
+            // evento de load da pagina
+            window.onload = run();
+        </script>
+
+    </body>
+</html>

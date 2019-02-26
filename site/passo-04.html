@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+    <head>
+
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta http-equiv="X-UA-Compatible" content="ie=edge">
+
+        <title>FaceApi - GDG POA</title>
+
+        <!-- estilo -->
+        <link rel="stylesheet" href="css/style.css">
+
+        <!-- firebase -->
+        <script src="js/firebase-conf.js"></script>
+
+        <!-- jquery -->
+        <script src="js/jquery/jquery-2.1.1.min.js"></script>
+
+        <!-- lib FACE API -->
+        <script src="js/face-api/face-api.min.js"></script>   
+
+    </head>
+    <body>
+        
+        <!-- 
+            Projeto completo
+        -->
+
+        <h1 id="msg-boas-vindas"></h1>
+
+        <div id="face-box">
+            <video onplay="onPlay(this)" id="inputVideo" autoplay muted></video>
+            <canvas id="overlay"></canvas>
+            <div id="lampadas-box">
+                <div id="lampadaImg" class="lampada liga"></div>
+                <p id="lampadaLabel"></p>
+            </div>
+        </div>
+
+        <script>
+
+            // container de video
+            const input = document.getElementById('inputVideo')
+
+            // canvas
+            const canvas = document.getElementById('overlay')
+
+            // elemento da mensagem de boas vindas
+            const boasVindas = document.getElementById('msg-boas-vindas');
+
+            // lampada ativa
+            let lampadaAtiva = 1;
+
+            // array de lampadas
+            const lampadas = [
+                { id :  1, label : 'Sala',   status : 'desliga' },
+                { id :  2, label : 'Quarto', status : 'desliga' },
+            ];
+
+            // descriptors dos usuarios cadastrados
+            let labeledFaceDescriptors = null;        
+
+            // cria um 'banco de dados' de referencias de rostos
+            const labels = [ 'jaison', 'ricardo' ];
+
+            // bloqueia a execucao da detecção de sorriso
+            let sorrisoBloqueado = false;
+
+            // bloqueia a execução da troca de lampada
+            let trocaLampadaBloqueado = false;
+
+            // container da imagem da lampada
+            let lampadaImg = document.getElementById('lampadaImg');
+
+            // label da lampada
+            let lampadaLabel = document.getElementById('lampadaLabel');
+
+            // retorna a expressao da pessoa
+            function getExpression(expressions){
+                
+                let max = expressions[0];
+
+                for(i = 1; i < expressions.length; i++){
+                    max = ( max.probability > expressions[i].probability ) ? max : expressions[i];
+                }
+
+                return max;
+
+            }
+
+            // ajusta o tamanho do canvas e os boxes
+            function resizeCanvasAndResults(dimensions, canvas, results) {
+
+                let { width, height } = dimensions instanceof HTMLVideoElement ? faceapi.getMediaDimensions(dimensions) : dimensions
+                
+                canvas.width = width
+                canvas.height = height
+
+                return faceapi.resizeResults(results, { width, height })
+
+            }
+
+            function detectaUsuario(detections){
+                const faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.6)
+                results = detections.map(fd => faceMatcher.findBestMatch(fd.descriptor))
+
+                // rostinho detectado
+                if(results[0].label == "unknown") {
+                    boasVindas.innerHTML = "Bem vindo, forasteiro!"
+                } else {
+                    console.log('Usuario detectado: ' + results[0].label);
+                    boasVindas.innerHTML = "Bem vindo, " + results[0].label + "!";
+                }
+            }
+
+            function executaSorriso(){
+                if(sorrisoBloqueado == true) return;
+
+                console.log('Sorriu!');
+
+                lampadas[lampadaAtiva].status = (lampadas[lampadaAtiva].status == "liga") ? "desliga" : "liga";
+                renderLampada();
+
+                // envia um push ao raspberry com o novo status da lampada
+                $.ajax({        
+                    type : 'POST',
+                    url : "https://fcm.googleapis.com/fcm/send",
+                    headers : {
+                        Authorization : fbkey
+                    },
+                    contentType : 'application/json',
+                    dataType: 'json',
+                    data: JSON.stringify({
+                        "notification": {
+                            "body" : lampadas[lampadaAtiva]
+                        },
+                        'to' : 'd0wvpAHhsTo:APA91bFN00tuT10FClvK-BLHGVSAGvNXqY6_W_Efge4gR8V8_HUvmuPe0vCm1_YkpBejYhizSj2UCBaav9qP1BtA6hlxzoEuNWPCAP1VKfyA8CLUdP77tpbWNArFtH7pTdmFzoka1o-6',
+                    }),
+                    success : function(response) {
+                        console.log(response);
+                    },
+                    error : function(xhr, status, error) {
+                        console.log(xhr.error);                   
+                    }
+                });
+
+                sorrisoBloqueado = true;
+                setTimeout(() => { sorrisoBloqueado = false; }, 2000);
+            }
+
+            function renderLampada(){
+                // console.log('render lampada ' + lampadaAtiva);
+                lampadaImg.className = "lampada " + lampadas[lampadaAtiva].status;
+                lampadaLabel.innerHTML = lampadas[lampadaAtiva].label;
+            }
+
+            function executaTrocaLampada(){
+                if(trocaLampadaBloqueado == true) return;
+
+                console.log('Trocar lampada');
+
+                lampadaAtiva = (lampadaAtiva == lampadas.length-1) ? 0 : lampadaAtiva+1;
+                renderLampada();
+
+                trocaLampadaBloqueado = true;
+                setTimeout(() => { trocaLampadaBloqueado = false; }, 2000);
+            }
+
+            // executado quando a webcam começa a aparecer na tela
+            async function onPlay() {
+                // console.log('onPlay');
+
+                let detections = await faceapi.detectAllFaces(input, new faceapi.TinyFaceDetectorOptions()).withFaceExpressions().withFaceLandmarks().withFaceDescriptors();
+                
+                if(detections.length > 0) {
+                    
+                    // console.log(detections);
+                    
+                    // detecta o usuario na camera
+                    detectaUsuario(detections);
+
+                    // desenha contorno na face
+                    let resizedDetections = resizeCanvasAndResults(input, canvas, detections.map(det => det.detection))
+                    faceapi.drawDetection(canvas, resizedDetections, { withScore: false })
+
+                    // detecta se o usuario sorriu
+                    let userExpression = getExpression(detections[0].expressions);
+
+                    if ( userExpression.expression == "happy" ) {
+                        // cidadao sorriu
+                        executaSorriso();
+                    }
+
+                    // verifica se deve trocar lampada                    
+                    let leftEye = detections[0].landmarks.getLeftEye()
+                    let rightEye = detections[0].landmarks.getRightEye()
+
+                    // calcula a diferença do eixo y entre os olhos esquerdo e direito
+                    let difEye = parseInt(leftEye[0].y) - parseInt(rightEye[0].y);
+
+                    // caso a diferença do olho esquerdo e direito seja negativa
+                    difEye = (difEye < 0) ? difEye * -1 : difEye;
+                    
+                    // se a diferença de altura entre os olhos for superior a 20 troca a lampada
+                    if( difEye > 20 ) {
+                        executaTrocaLampada();
+                    }
+
+                }
+
+                setTimeout(() => onPlay(), 200);
+
+            }
+
+            async function run(){
+
+                renderLampada();
+
+                // carrega modelos
+                await faceapi.loadTinyFaceDetectorModel('/models')
+
+                // carrega o modulo de expressoes
+                await faceapi.loadFaceExpressionModel('/models')
+
+                // carregar os modulos de reconhecimento facial
+                await faceapi.loadFaceLandmarkTinyModel('/models')
+                await faceapi.loadFaceLandmarkModel('/models')
+                await faceapi.loadFaceRecognitionModel('/models')
+
+                                
+                // Acessa webcam
+                navigator.getUserMedia(
+                    { video: {} },
+                    stream => input.srcObject = stream,
+                    err => console.error(err)
+                )
+                
+                labeledFaceDescriptors = await Promise.all(
+                    labels.map(async label => {
+                        // fetch image data from urls and convert blob to HTMLImage element
+                        const imgUrl = `pessoas/${label}.jpg`
+                        const img = await faceapi.fetchImage(imgUrl)
+                        
+                        // detect the face with the highest score in the image and compute it's landmarks and face descriptor
+                        const fullFaceDescription = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor()
+                        
+                        if (!fullFaceDescription) {
+                        throw new Error(`no faces detected for ${label}`)
+                        }
+                        
+                        const faceDescriptors = [fullFaceDescription.descriptor]
+                        return new faceapi.LabeledFaceDescriptors(label, faceDescriptors)
+                    })
+                )
+
+                // usuarios que serao detectados
+                // console.log(labeledFaceDescriptors);
+            };
+
+            // evento de load da pagina
+            window.onload = run();
+        </script>
+
+    </body>
+</html>

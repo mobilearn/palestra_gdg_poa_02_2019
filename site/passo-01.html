@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+    <head>
+
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta http-equiv="X-UA-Compatible" content="ie=edge">
+
+        <title>FaceApi - GDG POA</title>
+
+        <!-- estilo -->
+        <link rel="stylesheet" href="css/style.css">
+
+        <!-- lib FACE API -->
+        <script src="js/face-api/face-api.js"></script>   
+
+    </head>
+    <body>
+        
+        <!-- 
+            Apenas detectar uma face
+        -->
+
+        <div id="face-box">
+            <video onplay="onPlay(this)" id="inputVideo" autoplay muted></video>
+            <canvas id="overlay"></canvas>
+        </div>
+
+        <script>
+            // container de video
+            const input = document.getElementById('inputVideo')
+
+            // canvas
+            const canvas = document.getElementById('overlay')
+
+            // ajusta o tamanho do canvas e os boxes
+            function resizeCanvasAndResults(dimensions, canvas, results) {
+
+                let { width, height } = dimensions instanceof HTMLVideoElement ? faceapi.getMediaDimensions(dimensions) : dimensions
+                
+                canvas.width = width
+                canvas.height = height
+
+                return faceapi.resizeResults(results, { width, height })
+
+            }
+
+            // executado quando a webcam começa a aparecer na tela
+            async function onPlay() {
+                
+                let detections = await faceapi.detectSingleFace(input, new faceapi.TinyFaceDetectorOptions());
+
+                if (detections) {
+                    console.log(detections); // informacoes sobre a face detectada
+
+                    let resizedDetections = resizeCanvasAndResults(input, canvas, detections)
+                    faceapi.drawDetection(canvas, resizedDetections, { withScore: false })
+                } 
+
+                setTimeout(() => onPlay(), 200);
+
+            }
+
+            async function run(){
+                // carrega modelos
+                await faceapi.loadTinyFaceDetectorModel('/models')
+                                
+                // Acessa webcam
+                navigator.getUserMedia(
+                    { video: {} },
+                    stream => input.srcObject = stream,
+                    err => console.error(err)
+                )
+            };
+
+            // evento de load da pagina
+            window.onload = run();
+        </script>
+
+    </body>
+</html>

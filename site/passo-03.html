@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+    <head>
+
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta http-equiv="X-UA-Compatible" content="ie=edge">
+
+        <title>FaceApi - GDG POA</title>
+
+        <!-- estilo -->
+        <link rel="stylesheet" href="css/style.css">
+
+        <!-- lib FACE API -->
+        <script src="js/face-api/face-api.js"></script>   
+
+    </head>
+    <body>
+        
+        <!-- 
+            Detectar o nome da pessoa - Face Recognition
+        -->
+
+        <div id="face-box">
+            <video onplay="onPlay(this)" id="inputVideo" autoplay muted></video>
+            <canvas id="overlay"></canvas>
+        </div>
+
+        <script>
+            // container de video
+            const input = document.getElementById('inputVideo')
+
+            // canvas
+            const canvas = document.getElementById('overlay')
+
+            let labeledFaceDescriptors = null;
+
+            // cria um 'banco de dados' de referencias de rostos
+            const labels = [ 'jaison', 'ricardo'];
+
+            // retorna a expressao da pessoa
+            function getExpression(expressions){
+                
+                let max = expressions[0];
+
+                for(i = 1; i < expressions.length; i++){
+                    max = ( max.probability > expressions[i].probability ) ? max : expressions[i];
+                }
+
+                return max;
+
+            }
+
+            // ajusta o tamanho do canvas e os boxes
+            function resizeCanvasAndResults(dimensions, canvas, results) {
+
+                let { width, height } = dimensions instanceof HTMLVideoElement ? faceapi.getMediaDimensions(dimensions) : dimensions
+                
+                canvas.width = width
+                canvas.height = height
+
+                return faceapi.resizeResults(results, { width, height })
+
+            }
+
+            // executado quando a webcam começa a aparecer na tela
+            async function onPlay() {
+                console.log('onPlay');
+
+                // adiciona .withFaceDescriptor()
+                // trocar para detectAllFaces
+                // detectSingleFace nao funcionou
+                let detections = await faceapi.detectAllFaces(input, new faceapi.TinyFaceDetectorOptions()).withFaceExpressions().withFaceLandmarks().withFaceDescriptors();
+                
+                // alem de detectar o rosto, vamos tentar detectar quem eh essa pessoa
+                if(detections.length > 0) {
+                    
+                    console.log(detections);
+
+                    const faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.6)
+                    const results = detections.map(fd => faceMatcher.findBestMatch(fd.descriptor))
+
+                    console.log(detections.map(det => det.detection));
+
+                    let resizedDetections = resizeCanvasAndResults(input, canvas, detections.map(det => det.detection))
+                    faceapi.drawDetection(canvas, resizedDetections, { withScore: false })
+
+                    // rostinho detectado
+                    console.log(results);
+
+                    if(results[0].label == "unknown") {
+                        console.log('Usuario não reconhecido');
+                    } else {
+                        console.log('Usuario detectado: ' + results[0].label);
+                    }
+
+                } else {
+                    // se nao detectou uma face executa de novo ate detectar
+                    setTimeout(() => onPlay(), 200);
+                }
+
+            }
+
+            async function run(){
+                // carrega modelos
+                await faceapi.loadTinyFaceDetectorModel('/models')
+
+                // carrega o modulo de expressoes
+                await faceapi.loadFaceExpressionModel('/models')
+
+                // carregar os modulos de reconhecimento facial
+                await faceapi.loadFaceLandmarkTinyModel('/models')
+                await faceapi.loadFaceLandmarkModel('/models')
+                await faceapi.loadFaceRecognitionModel('/models')
+
+                                
+                // Acessa webcam
+                navigator.getUserMedia(
+                    { video: {} },
+                    stream => input.srcObject = stream,
+                    err => console.error(err)
+                )
+                
+                labeledFaceDescriptors = await Promise.all(
+                    labels.map(async label => {
+                        // fetch image data from urls and convert blob to HTMLImage element
+                        const imgUrl = `pessoas/${label}.jpg`
+                        const img = await faceapi.fetchImage(imgUrl)
+                        
+                        // detect the face with the highest score in the image and compute it's landmarks and face descriptor
+                        const fullFaceDescription = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor()
+                        
+                        if (!fullFaceDescription) {
+                        throw new Error(`no faces detected for ${label}`)
+                        }
+                        
+                        const faceDescriptors = [fullFaceDescription.descriptor]
+                        return new faceapi.LabeledFaceDescriptors(label, faceDescriptors)
+                    })
+                )
+
+                console.log(labeledFaceDescriptors);
+            };
+
+            // evento de load da pagina
+            window.onload = run();
+        </script>
+
+    </body>
+</html>
